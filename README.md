@@ -63,6 +63,19 @@ The 32-bit `TheForest32.exe` is **not** supported (Doorstop `winhttp.dll` here i
 
 ## Installation
 
+### One-click launcher
+
+Download **`ForestModLoader.exe`** and run it. It auto-detects the game folder
+(Steam registry → `libraryfolders.vdf`), installs the loader and can start the game.
+
+- `Установить` / *Install* — copies the loader into the game folder
+- `Запустить игру` / *Play* — starts `TheForest.exe` normally (no admin rights)
+- `Удалить` / *Uninstall* — removes the loader and `DllMods/`
+
+The executable is **unsigned**, so SmartScreen may warn: *More info → Run anyway*.
+If the game is in `Program Files`, Windows asks for elevation once; the game itself
+is still launched without admin rights.
+
 ### From a release
 
 1. Download and extract the release archive.
@@ -94,6 +107,13 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Install `
 
 `build.ps1` uses the Windows-bundled C# 3.5 compiler and references the game assemblies from
 `..\Managed` (`Assembly-CSharp.dll`, `UnityEngine.dll`, `TheForest.Modding.dll`).
+
+Building the launcher (embeds the four loader files as resources):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\launcher\build-launcher.ps1
+# → out\ForestModLoader.exe
+```
 
 ---
 
@@ -170,6 +190,15 @@ Then drop `MyMod.dll` into `DllMods\`.
 ├── src/
 │   ├── Doorstop.cs          # the loader (entry point + ModHost)
 │   └── SampleCheats.cs      # example mod
+├── launcher/
+│   ├── Launcher.cs          # WinForms installer / launcher
+│   ├── app.manifest
+│   └── build-launcher.ps1
+├── assets/
+│   ├── steam_logo_512.png   # Steam guide logo
+│   └── icon.ico             # launcher icon
+├── steam/
+│   └── guide_ru.txt         # ready-to-paste Steam guide (BBCode)
 ├── doorstop/
 │   ├── winhttp.dll          # UnityDoorstop 4.6.0 (x64, LGPL-2.1)
 │   ├── doorstop_config.ini
