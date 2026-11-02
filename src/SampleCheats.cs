@@ -6,6 +6,8 @@ using UnityEngine;
 // РџСЂРёРјРµСЂ РјРѕРґР° РґР»СЏ СЃРІРѕРµРіРѕ Р·Р°РіСЂСѓР·С‡РёРєР°: СЃС‚Р°С‚РёС‡РµСЃРєРёР№ Init() РІС‹Р·С‹РІР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё.
 public static class SampleCheats
 {
+    private static readonly object LogLock = new object();
+
     public static void Init()
     {
         GameObject go = new GameObject("SampleCheatsHost");
@@ -18,8 +20,11 @@ public static class SampleCheats
     {
         try
         {
-            File.AppendAllText(Path.Combine(Directory.GetCurrentDirectory(), "doorstop_loader.log"),
-                "[" + DateTime.Now.ToString("HH:mm:ss") + "] [SampleCheats] " + msg + "\r\n");
+            lock (LogLock)
+            {
+                File.AppendAllText(Path.Combine(Directory.GetCurrentDirectory(), "doorstop_loader.log"),
+                    "[" + DateTime.Now.ToString("HH:mm:ss") + "] [SampleCheats] " + msg + "\r\n");
+            }
         }
         catch
         {
@@ -45,11 +50,16 @@ public class SampleHost : MonoBehaviour
     {
         try
         {
+            // Health/Energy/Stamina — шкалы 0..100, а Fullness/Thirst — 0..1.
+            // Если поставить Fullness = 100, игра клампит его до 1.0 в следующем
+            // кадре; пишем правильное значение сразу.
             LocalPlayer.Stats.Health = 100f;
+            LocalPlayer.Stats.HealthTarget = 100f; // иначе HUD-полоска и реген тянутся к старому значению
             LocalPlayer.Stats.Energy = 100f;
             LocalPlayer.Stats.Stamina = 100f;
-            LocalPlayer.Stats.Fullness = 100f;
+            LocalPlayer.Stats.Fullness = 1f;
             LocalPlayer.Stats.Thirst = 0f;
+            LocalPlayer.Stats.Starvation = 0f;
             SampleCheats.Log("healed");
         }
         catch (Exception e)

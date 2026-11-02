@@ -1,0 +1,19 @@
+# build output
+out/
+bin/
+obj/
+
+# logs
+*.log
+doorstop_loader.log
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# do not commit game files or decompiled sources
+*.dll.bak
+Assembly-CSharp*
+TheForest_Data/
+decompiled/

@@ -386,6 +386,13 @@ namespace ForestModLoader
                 return;
             }
 
+            if (IsGameRunning())
+            {
+                MessageBox.Show("Игра запущена — Windows не даст перезаписать winhttp.dll.\nЗакрой игру и повтори.",
+                    Program.AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             try
             {
                 Installer.Install(dir);
@@ -438,6 +445,13 @@ namespace ForestModLoader
                 return;
             }
 
+            if (IsGameRunning())
+            {
+                MessageBox.Show("Игра запущена. Закрой её и повтори.", Program.AppTitle,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (MessageBox.Show("Удалить лоадер и папку DllMods (вместе с модами)?\n\nФайлы игры не пострадают.",
                     Program.AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
@@ -467,6 +481,13 @@ namespace ForestModLoader
                 return;
             }
 
+            if (IsGameRunning())
+            {
+                MessageBox.Show("The Forest уже запущена.", Program.AppTitle,
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
             if (!Installer.IsInstalled(dir) &&
                 MessageBox.Show("Лоадер не установлен. Установить сейчас?", Program.AppTitle,
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
@@ -493,6 +514,18 @@ namespace ForestModLoader
         private void Log(string message)
         {
             _log.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message + "\r\n");
+        }
+
+        private static bool IsGameRunning()
+        {
+            try
+            {
+                return Process.GetProcessesByName("TheForest").Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

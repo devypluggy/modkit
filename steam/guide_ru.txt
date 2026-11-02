@@ -1,0 +1,125 @@
+[h1]Моды для The Forest без ModAPI[/h1]
+
+[b]Лёгкий загрузчик модов на базе UnityDoorstop.[/b]
+Он [b]не изменяет файлы игры[/b]: Assembly-CSharp.dll остаётся оригинальным, Steam «Проверка целостности» ничего не ломает. ModAPI не нужен. Удаление — стереть 3 файла.
+
+[b]Скачать:[/b] [url=https://github.com/devypluggy/modkit/releases]GitHub Releases[/url]
+[b]Исходный код:[/b] [url=https://github.com/devypluggy/modkit]GitHub[/url]
+
+[h2]Что это даёт[/h2]
+[list]
+[*]Кладёшь .dll в папку [b]DllMods[/b] — мод грузится сам при запуске.
+[*]Ничего не патчится: никаких бэкапов, «восстановить оригиналы» и сломанных обновлений.
+[*]Вес лоадера — около 40 КБ.
+[*]Моды собираются встроенным в Windows компилятором C# 3.0, .NET SDK не нужен.
+[/list]
+
+[h2]Чего он не делает[/h2]
+Он [b]не запускает готовые моды ModAPI[/b] (Ultimate Cheatmenu, Map, BetterBlueprints и т.п.) — там другая архитектура. Это база для своих модов и лёгкая альтернатива патчеру.
+
+[h2]Требования[/h2]
+[list]
+[*]The Forest в Steam, [b]64-битная[/b] версия (TheForest.exe)
+[*]Windows 10/11 x64
+[*]TheForest32.exe [b]не[/b] поддерживается
+[/list]
+
+[h2]Установка (2 минуты)[/h2]
+[b]1.[/b] Скачай архив из Releases и распакуй его.
+[b]2.[/b] В Steam: ПКМ по игре → Управление → Просмотреть локальные файлы.
+[b]3.[/b] Скопируй в эту папку (рядом с TheForest.exe):
+[code]winhttp.dll
+doorstop_config.ini
+Doorstop.dll[/code]
+[b]4.[/b] Создай папку [b]DllMods[/b] и положи туда моды (.dll).
+[b]5.[/b] Запускай игру [b]обычным способом через Steam[/b].
+
+[quote]Не запускай игру через ModAPI.exe — он патчит Assembly-CSharp.dll и будет конфликтовать с лоадером.[/quote]
+
+[h2]Как проверить, что всё работает[/h2]
+Дойди до главного меню и открой в папке игры файл [b]doorstop_loader.log[/b]. В нём должно быть примерно так:
+[code]Doorstop.Start, cwd=...\The Forest
+subscribed to SceneManager.sceneLoaded
+ModHost created
+LoadMods: ...\DllMods exists=True
+found mods: 1
+Init called: ТвойМод[/code]
+Если файла нет — лоадер не подхватился, смотри раздел «Если не работает».
+
+[h2]Как написать свой мод[/h2]
+Нужен публичный статический метод [b]Init()[/b] без параметров. Он вызывается автоматически после загрузки первой сцены:
+[code]using UnityEngine;
+
+public static class MyMod
+{
+    public static void Init()
+    {
+        GameObject go = new GameObject("MyMod");
+        Object.DontDestroyOnLoad(go);
+        go.AddComponent&lt;MyBehaviour&gt;();
+    }
+}
+
+public class MyBehaviour : MonoBehaviour
+{
+    private void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.F7))
+        {
+            // твой код
+        }
+    }
+}[/code]
+Скомпилируй под .NET 3.5 (C# 3.0) с ссылками на [b]UnityEngine.dll[/b], [b]Assembly-CSharp.dll[/b] и [b]TheForest.Modding.dll[/b] из папки игры, положи DLL в [b]DllMods\[/b] — готово.
+
+[b]Важно:[/b] в [b]Init()[/b] игрок (LocalPlayer) ещё может быть null. Игровую логику держи в [b]Update()[/b] и проверяй на null.
+
+[h2]Безопасность[/h2]
+[list]
+[*]Код открыт: [url=https://github.com/devypluggy/modkit]GitHub[/url]
+[*]Файлы игры не изменяются и не распространяются
+[*]Нет телеметрии и сетевых запросов
+[*]winhttp.dll — штатный прокси UnityDoorstop 4.6.0 ([url=https://github.com/NeighTools/UnityDoorstop]исходники[/url], LGPL-2.1), без модификаций
+[/list]
+SHA256 файлов версии 1.0.0:
+[code]ForestModLoader-v1.0.0.zip  E2CFC053CF0FDD3314F122E99941F35A5F53E67C3E5E8BB8F996CD55AACCF317
+ForestModLoader.exe  F3B4B161CA214DBF96C0284D54C8F3E0C0732A20835948D554A2BEBE25DF09FD
+Doorstop.dll         5D3B59D4F66E3C34C83A88B196600335FB48902E1BB32F8290C3D838B9CD0F83
+SampleCheats.dll      1AB31BE17687CEB0E66BD9BA779D18DE94E9DC20B6A27351DB045AA7CCA98E54
+winhttp.dll           0F39399EBA05DEA9419781187AE2A6B0555AFCDF1859F1319B6213BE7729013B
+doorstop_config.ini   ED4B90EA68AD3A765160F5C53288076ADA5941451C67EE2EF27369EB9E1C8CD9[/code]
+Проверить: [url=https://www.virustotal.com/]VirusTotal[/url] — загрузи архив и сравни хэши.
+
+[b]Антивирус может ругаться на winhttp.dll[/b] — это нормально для любого Doorstop-лоадера, файл подменяет системную библиотеку. Если сработала защита, добавь папку игры в исключения.
+
+[h2]Если не работает[/h2]
+[list]
+[*][b]Нет doorstop_loader.log[/b] — winhttp.dll лежит не рядом с TheForest.exe, скачана x86-версия или антивирус удалил файл.
+[*][b]Лог есть, но нет Init called[/b] — мод не в DllMods, метод Init не public static или с параметрами, либо сборка не загрузилась (в логе строка mod load error).
+[*][b]Init called есть, но в игре ничего[/b] — логика выполнилась до появления LocalPlayer, перенеси её в Update().
+[*][b]Игра не запускается[/b] — удали winhttp.dll и doorstop_config.ini, игра вернётся в исходное состояние.
+[/list]
+Лог самой игры: [b]%USERPROFILE%\AppData\LocalLow\SKS\The Forest\output_log.txt[/b]
+
+[h2]Удаление[/h2]
+Просто удали из папки игры:
+[code]winhttp.dll
+doorstop_config.ini
+Doorstop.dll
+doorstop_loader.log
+DllMods\[/code]
+Игра останется абсолютно нетронутой.
+
+[h2]Совместимость[/h2]
+[list]
+[*]The Forest (Steam), Unity 5.6.5, x64
+[*]Не совместим по одновременному запуску с ModAPI: запускай игру напрямую через Steam
+[*]После обновления игры Steam может перезаписать winhttp.dll — просто скопируй его обратно
+[/list]
+
+[h2]Благодарности[/h2]
+[list]
+[*][b]UnityDoorstop[/b] © NeighTools — LGPL-2.1
+[*][b]The Forest[/b] © Endnight Games. Проект не содержит кода и ресурсов игры, для использования нужна лицензионная копия.
+[*]Код лоадера — MIT
+[/list]
