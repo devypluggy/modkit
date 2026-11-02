@@ -1,5 +1,11 @@
 # The Forest Mod Loader
 
+[![Release](https://img.shields.io/github/v/release/devypluggy/modkit?color=9be564&label=release)](https://github.com/devypluggy/modkit/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-9be564)](LICENSE)
+[![Game](https://img.shields.io/badge/game-The%20Forest%20(x64)-9be564)](#requirements)
+
+**Download:** [latest release](https://github.com/devypluggy/modkit/releases/latest) — one `ForestModLoader.exe`, no install, works offline.
+
 A lightweight, non-invasive **mod loader for The Forest** (Unity 5.6, Mono, x64), built on top of [UnityDoorstop](https://github.com/NeighTools/UnityDoorstop).
 
 No game files are patched. Drop your `.dll` into `DllMods/` — it loads automatically on startup.
