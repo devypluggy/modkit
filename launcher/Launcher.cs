@@ -237,7 +237,8 @@ namespace ForestModLoader
 
         public MainForm()
         {
-            Text = Program.AppTitle;
+            Text = Program.AppTitle + " " + Assembly.GetExecutingAssembly().GetName().Version.Major +
+                   "." + Assembly.GetExecutingAssembly().GetName().Version.Minor;
             ClientSize = new Size(580, 448);
             MinimumSize = new Size(596, 486);
             MaximumSize = new Size(596, 486);

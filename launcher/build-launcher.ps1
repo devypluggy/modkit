@@ -27,7 +27,7 @@ $exe = Join-Path $OutDir "ForestModLoader.exe"
     /resource:"$res\doorstop_config.ini",payload.doorstop_config.ini `
     /resource:"$built\Doorstop.dll",payload.Doorstop.dll `
     /resource:"$built\SampleCheats.dll",payload.SampleCheats.dll `
-    "$PSScriptRoot\Launcher.cs"
+    "$PSScriptRoot\Version.cs" "$PSScriptRoot\Launcher.cs"
 
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
