@@ -1,7 +1,11 @@
-# build output
-out/
+# build output (out/*.dll and out/*.exe are tracked on purpose: releases)
+out/*.tmp
+out/release/
+out/release-*/
 bin/
 obj/
+*.pdb
+*.zip
 
 # logs
 *.log
@@ -16,4 +20,6 @@ doorstop_loader.log
 *.dll.bak
 Assembly-CSharp*
 TheForest_Data/
+TheForest32_Data/
+TheForestVR_Data/
 decompiled/

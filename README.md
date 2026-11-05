@@ -2,11 +2,11 @@
 
 [![Release](https://img.shields.io/github/v/release/devypluggy/modkit?color=9be564&label=release)](https://github.com/devypluggy/modkit/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-9be564)](LICENSE)
-[![Game](https://img.shields.io/badge/game-The%20Forest%20(x64)-9be564)](#requirements)
+[![Game](https://img.shields.io/badge/game-The%20Forest%20(x64%2Fx86)-9be564)](#requirements)
 
 **Download:** [latest release](https://github.com/devypluggy/modkit/releases/latest) — one `ForestModLoader.exe`, no install, works offline.
 
-A lightweight, non-invasive **mod loader for The Forest** (Unity 5.6, Mono, x64), built on top of [UnityDoorstop](https://github.com/NeighTools/UnityDoorstop).
+A lightweight, non-invasive **mod loader for The Forest** (Unity 5.6, Mono), built on top of [UnityDoorstop](https://github.com/NeighTools/UnityDoorstop).
 
 No game files are patched. Drop your `.dll` into `DllMods/` — it loads automatically on startup.
 
@@ -23,12 +23,12 @@ Game root
 
 ## Features
 
-- **Zero patching** — original game files stay untouched; uninstall is just deleting three files.
+- **Zero patching** — original game files stay untouched; uninstall is just deleting the loader files.
 - **Auto-discovery** — every `DllMods/**/*.dll` is loaded and its `public static void Init()` is called.
 - **Survives Steam "Verify integrity"** — nothing in `TheForest_Data` is modified.
 - **No .NET SDK required** — builds with the C# 3.0 compiler from .NET 3.5, bundled with Windows.
 - **Plain .NET 3.5 assemblies** — same runtime as the game, full access to `Assembly-CSharp`, `UnityEngine`, `TheForest.*`.
-- **File log** — everything is written to `doorstop_loader.log` next to the executable.
+- **File log** — everything is written to `doorstop_loader.log` next to the executable; if the folder is read-only, the loader falls back to `%LOCALAPPDATA%\TheForestModLoader\`.
 
 ---
 
@@ -58,12 +58,15 @@ flowchart LR
 
 | | |
 |---|---|
-| Game | The Forest (Steam, **64-bit** `TheForest.exe`) |
+| Game | The Forest (Steam, `TheForest.exe`; 32-bit `TheForest32.exe` is also supported) |
 | Runtime | Unity 5.6 Mono — .NET 2.0/3.5 |
-| OS | Windows 10/11 x64 |
+| OS | Windows 10/11 |
 | Build tools | `C:\Windows\Microsoft.NET\Framework64\v3.5\csc.exe` (ships with Windows) |
 
-The 32-bit `TheForest32.exe` is **not** supported (Doorstop `winhttp.dll` here is x64).
+The launcher reads the PE header of the selected game exe and installs the matching
+`winhttp.dll` (x64 or x86). Both architectures cannot coexist in one folder: if a copy has
+both `TheForest.exe` and `TheForest32.exe`, the installer targets the 64-bit one. For a
+32-bit-only setup use `build.ps1 -Install -X86` or the `winhttp_x86.dll` from `doorstop/`.
 
 ---
 
@@ -75,8 +78,8 @@ Download **`ForestModLoader.exe`** and run it. It auto-detects the game folder
 (Steam registry → `libraryfolders.vdf`), installs the loader and can start the game.
 
 - `Установить` / *Install* — copies the loader into the game folder
-- `Запустить игру` / *Play* — starts `TheForest.exe` normally (no admin rights)
-- `Удалить` / *Uninstall* — removes the loader and `DllMods/`
+- `Запустить игру` / *Play* — starts `TheForest.exe` (or `TheForest32.exe`) normally, no admin rights
+- `Удалить` / *Uninstall* — removes the loader and `SampleCheats.dll`; your own mods in `DllMods/` stay
 
 The executable is **unsigned**, so SmartScreen may warn: *More info → Run anyway*.
 If the game is in `Program Files`, Windows asks for elevation once; the game itself
@@ -88,11 +91,15 @@ is still launched without admin rights.
 2. Copy into your game folder (the one containing `TheForest.exe`):
 
 ```
-winhttp.dll
+winhttp.dll                  (x64; x86 builds use doorstop\winhttp_x86.dll)
 doorstop_config.ini
 Doorstop.dll
 DllMods\SampleCheats.dll     (optional)
 ```
+
+> The release archive keeps the loader files in its `doorstop\` folder, so copy them
+> from there into the game root. For a 32-bit-only copy rename `winhttp_x86.dll`
+> to `winhttp.dll`.
 
 3. Launch the game **normally through Steam**.
 4. After reaching the main menu, check `doorstop_loader.log` in the game folder.
@@ -109,12 +116,18 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 # build and copy everything into the game folder
 powershell -ExecutionPolicy Bypass -File .\build.ps1 -Install `
     -GameDir "C:\Program Files (x86)\Steam\steamapps\common\The Forest"
+
+# 32-bit-only copy: install the x86 proxy
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Install -X86 `
+    -GameDir "C:\Program Files (x86)\Steam\steamapps\common\The Forest"
 ```
 
-`build.ps1` uses the Windows-bundled C# 3.5 compiler and references the game assemblies from
-`..\Managed` (`Assembly-CSharp.dll`, `UnityEngine.dll`, `TheForest.Modding.dll`).
+`build.ps1` uses the Windows-bundled C# 3.5 compiler and auto-detects the game assemblies:
+`-ManagedDir` if given, then `<GameDir>\TheForest_Data\Managed`, then the local `..\Managed`
+folder (`Assembly-CSharp.dll`, `UnityEngine.dll`, `TheForest.Modding.dll`).
 
-Building the launcher (embeds the four loader files as resources):
+Building the launcher (embeds the loader files as resources and rebuilds `Doorstop.dll` /
+`SampleCheats.dll` first, so it cannot silently pack stale binaries):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\launcher\build-launcher.ps1
@@ -198,6 +211,7 @@ Then drop `MyMod.dll` into `DllMods\`.
 │   └── SampleCheats.cs      # example mod
 ├── launcher/
 │   ├── Launcher.cs          # WinForms installer / launcher
+│   ├── Version.cs           # assembly version
 │   ├── app.manifest
 │   └── build-launcher.ps1
 ├── assets/
@@ -207,9 +221,10 @@ Then drop `MyMod.dll` into `DllMods\`.
 │   └── guide_ru.txt         # ready-to-paste Steam guide (BBCode)
 ├── doorstop/
 │   ├── winhttp.dll          # UnityDoorstop 4.6.0 (x64, LGPL-2.1)
+│   ├── winhttp_x86.dll      # UnityDoorstop 4.6.0 (x86, LGPL-2.1)
 │   ├── doorstop_config.ini
 │   └── LICENSE              # Doorstop license
-├── out/                     # build output (git-ignored)
+├── out/                     # build output (binaries are tracked for releases)
 ├── build.ps1
 ├── uninstall.ps1
 └── README.md
@@ -233,17 +248,21 @@ Everything else can stay at defaults.
 
 ## Logs
 
-`<game folder>\doorstop_loader.log` — append-only, written by the loader and by sample mods:
+`<game folder>\doorstop_loader.log` — append-only, written by the loader and by sample mods.
+If the game folder is read-only (common under `Program Files` without elevation), the same
+file is created at `%LOCALAPPDATA%\TheForestModLoader\doorstop_loader.log`. Timestamps include
+the date, and a log larger than 2 MB is rotated to `doorstop_loader.log.old` on startup.
 
 ```
-[19:20:47] Doorstop.Start, cwd=...\The Forest
-[19:20:47] subscribed to SceneManager.sceneLoaded
-[19:21:33] scene loaded: 'SteamDedicatedBootstrapScene' mode=2
-[19:21:33] ModHost created
-[19:21:37] LoadMods: ...\DllMods exists=True
-[19:21:37] found mods: 1
-[19:21:37] loaded assembly: SampleCheats
-[19:21:37] Init called: SampleCheats
+[2026-11-05 19:20:47] Doorstop.Start, base=...\The Forest
+[2026-11-05 19:20:47] subscribed to SceneManager.sceneLoaded
+[2026-11-05 19:21:33] scene loaded: 'SteamDedicatedBootstrapScene' mode=2
+[2026-11-05 19:21:33] ModHost created
+[2026-11-05 19:21:37] LoadMods: ...\DllMods not found yet, will retry
+[2026-11-05 19:21:38] found mods: 1
+[2026-11-05 19:21:38] loaded assembly: SampleCheats
+[2026-11-05 19:21:38] [SampleCheats] SampleCheats.Init done
+[2026-11-05 19:21:38] Init called: SampleCheats
 ```
 
 ---
@@ -252,7 +271,7 @@ Everything else can stay at defaults.
 
 | Symptom | Cause / fix |
 |---|---|
-| No `doorstop_loader.log` at all | `winhttp.dll` missing, wrong architecture (x86 build on x64 game), game not launched from the game folder, or antivirus blocked it |
+| No `doorstop_loader.log` in the game folder | Check `%LOCALAPPDATA%\TheForestModLoader\doorstop_loader.log`; the game folder may be read-only. Otherwise `winhttp.dll` is missing, wrong architecture (x86 build on x64 game), or antivirus blocked it |
 | `doorstop_loader.log` exists, no `Init called` | Mod DLL missing in `DllMods/`, `Init` is not `public static` / has parameters, or assembly load failed — see the `mod load error` line |
 | `Init called`, but nothing happens in game | Logic runs before `LocalPlayer` exists — move it to `Update()` and null-check |
 | Game doesn't start after install | Delete `winhttp.dll` (and `doorstop_config.ini`) to roll back |
@@ -268,16 +287,19 @@ Game log: `%USERPROFILE%\AppData\LocalLow\SKS\The Forest\output_log.txt`.
 powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-Removes `winhttp.dll`, `doorstop_config.ini`, `Doorstop.dll`, `doorstop_loader.log` and `DllMods/`.
+Removes `winhttp.dll`, `doorstop_config.ini`, `Doorstop.dll`, `doorstop_loader.log` and
+`DllMods\SampleCheats.dll`. Your own mods in `DllMods/` are left untouched.
 Game files are untouched.
 
 ---
 
 ## Compatibility
 
-- Tested with **The Forest** (Steam, Unity 5.6.5, x64).
-- Coexists with nothing that patches `Assembly-CSharp.dll` — if you also use ModAPI,
+- Tested with **The Forest** (Steam, Unity 5.6.5, x64) and the 32-bit build.
+- Does not coexist with tools that patch `Assembly-CSharp.dll` — if you also use ModAPI,
   launch the game directly through Steam so the two loaders don't fight.
+- **VR is not supported.** `TheForestVR.exe` does not import `winhttp.dll`, so the Doorstop
+  proxy never loads in VR mode. Use the regular version for mods.
 - Steam updates may overwrite `winhttp.dll`; just copy it back afterwards.
 
 ---
@@ -285,7 +307,7 @@ Game files are untouched.
 ## Legal & credits
 
 - **UnityDoorstop** © NeighTools — licensed under **LGPL-2.1**.
-  The bundled `winhttp.dll` is an unmodified release binary (v4.6.0);
+  The bundled `winhttp.dll` (x64) and `winhttp_x86.dll` (x86) are unmodified release binaries (v4.6.0);
   source: <https://github.com/NeighTools/UnityDoorstop>.
 - **The Forest** © Endnight Games. This project contains **no game code or assets**.
   You must own the game to use it. Do not redistribute `Assembly-CSharp.dll` or decompiled sources.

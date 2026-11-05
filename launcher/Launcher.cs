@@ -13,6 +13,8 @@ namespace ForestModLoader
     {
         public const string AppTitle = "The Forest Mod Loader";
         public const string GameExe = "TheForest.exe";
+        public const string GameExe32 = "TheForest32.exe";
+        public const string GameExeVR = "TheForestVR.exe";
 
         [STAThread]
         private static void Main(string[] args)
@@ -30,6 +32,22 @@ namespace ForestModLoader
                 catch (Exception ex)
                 {
                     MessageBox.Show("Ошибка установки:\n" + ex.Message,
+                        AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
+
+            if (args.Length >= 2 && args[0] == "--uninstall")
+            {
+                try
+                {
+                    Installer.Uninstall(args[1]);
+                    MessageBox.Show("Готово.\n\nЛоадер удалён. Твои моды в DllMods остались на месте.",
+                        AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Ошибка удаления:\n" + ex.Message,
                         AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 return;
@@ -53,6 +71,43 @@ namespace ForestModLoader
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
+        }
+
+        // Папка может содержать только 32-битный exe (например, репак).
+        // Для запуска выбираем тот, который реально есть.
+        public static string PlayableExe(string dir)
+        {
+            string x64 = Path.Combine(dir, GameExe);
+            if (File.Exists(x64)) return x64;
+
+            string x86 = Path.Combine(dir, GameExe32);
+            if (File.Exists(x86)) return x86;
+
+            return null;
+        }
+
+        public static bool Is64Bit(string exe)
+        {
+            try
+            {
+                using (FileStream fs = new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    using (BinaryReader br = new BinaryReader(fs))
+                    {
+                        fs.Position = 0x3C;
+                        int peOffset = br.ReadInt32();
+                        fs.Position = peOffset + 4;
+                        ushort machine = br.ReadUInt16();
+
+                        // 0x014C — x86, 0x8664 — x64. Всё остальное считаем x64.
+                        return machine != 0x014C;
+                    }
+                }
+            }
+            catch
+            {
+                return true;
+            }
         }
     }
 
@@ -83,7 +138,7 @@ namespace ForestModLoader
                         object v = k.GetValue("InstallLocation");
                         if (v == null) continue;
                         string dir = v.ToString();
-                        if (File.Exists(Path.Combine(dir, Program.GameExe))) return dir;
+                        if (Program.PlayableExe(dir) != null) return dir;
                     }
                 }
                 catch
@@ -137,7 +192,7 @@ namespace ForestModLoader
             if (steam == null) return null;
 
             string classic = Path.Combine(steam, @"steamapps\common\The Forest");
-            if (File.Exists(Path.Combine(classic, Program.GameExe))) return classic;
+            if (Program.PlayableExe(classic) != null) return classic;
 
             // Парсим libraryfolders.vdf: берём все строки в кавычках, похожие на путь
             string vdf = Path.Combine(steam, @"steamapps\libraryfolders.vdf");
@@ -151,7 +206,7 @@ namespace ForestModLoader
                 {
                     string raw = m.Groups[1].Value.Replace("\\\\", "\\");
                     string candidate = Path.Combine(raw, @"steamapps\common\The Forest");
-                    if (File.Exists(Path.Combine(candidate, Program.GameExe))) return candidate;
+                    if (Program.PlayableExe(candidate) != null) return candidate;
                 }
             }
             catch
@@ -171,53 +226,178 @@ namespace ForestModLoader
             return true;
         }
 
+        public static bool HasAnyLoaderFile(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return false;
+            for (int i = 0; i < Files.Length; i++)
+            {
+                if (File.Exists(Path.Combine(dir, Files[i]))) return true;
+            }
+            return File.Exists(Path.Combine(Path.Combine(dir, "DllMods"), "SampleCheats.dll"));
+        }
+
         public static void Install(string dir)
         {
             if (string.IsNullOrEmpty(dir)) throw new ArgumentException("Не указана папка игры.");
-            if (!File.Exists(Path.Combine(dir, Program.GameExe)))
-                throw new FileNotFoundException("В папке нет " + Program.GameExe + ". Укажи папку The Forest.");
 
-            Extract("payload.winhttp.dll", Path.Combine(dir, "winhttp.dll"));
-            Extract("payload.doorstop_config.ini", Path.Combine(dir, "doorstop_config.ini"));
-            Extract("payload.Doorstop.dll", Path.Combine(dir, "Doorstop.dll"));
+            string playable = Program.PlayableExe(dir);
+            if (playable == null)
+                throw new FileNotFoundException("В папке нет " + Program.GameExe +
+                    " (или " + Program.GameExe32 + "). Укажи папку The Forest.");
+
+            // Если игра 32-битная — нужен x86-прокси, иначе 0xc000007b.
+            string proxy = Program.Is64Bit(playable) ? "payload.winhttp.dll" : "payload.winhttp.x86.dll";
+
+            Extract(proxy, Path.Combine(dir, "winhttp.dll"), false);
+            Extract("payload.doorstop_config.ini", Path.Combine(dir, "doorstop_config.ini"), false);
+            Extract("payload.Doorstop.dll", Path.Combine(dir, "Doorstop.dll"), false);
 
             string mods = Path.Combine(dir, "DllMods");
             if (!Directory.Exists(mods)) Directory.CreateDirectory(mods);
 
-            string sample = Path.Combine(mods, "SampleCheats.dll");
-            if (!File.Exists(sample)) Extract("payload.SampleCheats.dll", sample);
+            // Всегда обновляем SampleCheats. Старый файл не удаляем, а держим
+            // рядом как .bak — вдруг пользователь его правил.
+            Extract("payload.SampleCheats.dll", Path.Combine(mods, "SampleCheats.dll"), true);
         }
 
         public static void Uninstall(string dir)
         {
             for (int i = 0; i < Files.Length; i++)
             {
-                string p = Path.Combine(dir, Files[i]);
-                if (File.Exists(p)) File.Delete(p);
+                DeleteIfExists(Path.Combine(dir, Files[i]));
             }
 
-            string log = Path.Combine(dir, "doorstop_loader.log");
-            if (File.Exists(log)) File.Delete(log);
+            DeleteIfExists(Path.Combine(dir, "doorstop_loader.log"));
+            DeleteIfExists(Path.Combine(dir, "doorstop_loader.log.old"));
 
             string mods = Path.Combine(dir, "DllMods");
-            if (Directory.Exists(mods)) Directory.Delete(mods, true);
+            DeleteIfExists(Path.Combine(mods, "SampleCheats.dll"));
+            DeleteIfExists(Path.Combine(mods, "SampleCheats.dll.bak"));
+            DeleteIfExists(Path.Combine(mods, "SampleCheats.dll.tmp"));
+
+            // Чужие моды не трогаем: удаляем папку, только если она опустела.
+            try
+            {
+                if (Directory.Exists(mods) && Directory.GetFileSystemEntries(mods).Length == 0)
+                    Directory.Delete(mods);
+            }
+            catch
+            {
+            }
         }
 
-        private static void Extract(string resource, string dest)
+        private static void DeleteIfExists(string path)
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+
+        private static void Extract(string resource, string dest, bool backupIfDifferent)
         {
             Assembly asm = Assembly.GetExecutingAssembly();
-            using (Stream src = asm.GetManifestResourceStream(resource))
+            string tmp = dest + ".tmp";
+
+            try
             {
-                if (src == null) throw new Exception("Повреждён файл лаунчера: нет ресурса " + resource);
-                using (FileStream fs = new FileStream(dest, FileMode.Create, FileAccess.Write))
+                if (File.Exists(tmp)) File.Delete(tmp);
+
+                using (Stream src = asm.GetManifestResourceStream(resource))
                 {
-                    byte[] buffer = new byte[81920];
-                    int read;
-                    while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
+                    if (src == null) throw new Exception("Повреждён файл лаунчера: нет ресурса " + resource);
+                    using (FileStream fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write))
                     {
-                        fs.Write(buffer, 0, read);
+                        byte[] buffer = new byte[81920];
+                        int read;
+                        while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            fs.Write(buffer, 0, read);
+                        }
                     }
                 }
+
+                if (File.Exists(dest) && FilesEqual(tmp, dest))
+                {
+                    File.Delete(tmp);
+                    return;
+                }
+
+                if (backupIfDifferent && File.Exists(dest))
+                {
+                    try
+                    {
+                        File.Copy(dest, dest + ".bak", true);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                Replace(tmp, dest);
+            }
+            catch
+            {
+                // Не оставляем мусор и, главное, не оставляем недописанный
+                // winhttp.dll — рабочий файл заменяется только целиком.
+                try
+                {
+                    if (File.Exists(tmp)) File.Delete(tmp);
+                }
+                catch
+                {
+                }
+                throw;
+            }
+        }
+
+        private static void Replace(string tmp, string dest)
+        {
+            if (!File.Exists(dest))
+            {
+                File.Move(tmp, dest);
+                return;
+            }
+
+            try
+            {
+                // Атомарная замена в пределах одного тома (NTFS).
+                File.Replace(tmp, dest, null);
+            }
+            catch
+            {
+                File.Delete(dest);
+                File.Move(tmp, dest);
+            }
+        }
+
+        private static bool FilesEqual(string a, string b)
+        {
+            try
+            {
+                FileInfo fa = new FileInfo(a);
+                FileInfo fb = new FileInfo(b);
+                if (fa.Length != fb.Length) return false;
+
+                using (FileStream sa = new FileStream(a, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (FileStream sb = new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    byte[] ba = new byte[8192];
+                    byte[] bb = new byte[8192];
+                    while (true)
+                    {
+                        int na = sa.Read(ba, 0, ba.Length);
+                        int nb = sb.Read(bb, 0, bb.Length);
+                        if (na != nb) return false;
+                        if (na == 0) return true;
+
+                        for (int i = 0; i < na; i++)
+                        {
+                            if (ba[i] != bb[i]) return false;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
     }
@@ -237,12 +417,16 @@ namespace ForestModLoader
 
         public MainForm()
         {
-            Text = Program.AppTitle + " " + Assembly.GetExecutingAssembly().GetName().Version.Major +
-                   "." + Assembly.GetExecutingAssembly().GetName().Version.Minor;
+            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+            Text = Program.AppTitle + " " + version.Major + "." + version.Minor + "." + version.Build;
+
+            // DPI: окно должно тянуться, иначе при 125–150% часть элементов
+            // уезжает за границы фиксированного размера.
+            AutoScaleDimensions = new SizeF(96f, 96f);
+            AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(580, 448);
             MinimumSize = new Size(596, 486);
-            MaximumSize = new Size(596, 486);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
+            FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Bg;
@@ -254,17 +438,20 @@ namespace ForestModLoader
             title.Font = new Font("Segoe UI", 18f, FontStyle.Bold);
             title.ForeColor = Lime;
             title.SetBounds(20, 14, 540, 36);
+            title.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(title);
 
             Label sub = new Label();
-            sub.Text = "Загрузчик модов без патча игры  ·  UnityDoorstop 4.6.0  ·  x64";
+            sub.Text = "Загрузчик модов без патча игры  ·  UnityDoorstop 4.6.0  ·  x64 / x86";
             sub.ForeColor = Muted;
             sub.SetBounds(22, 50, 540, 20);
+            sub.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(sub);
 
             Label pathLabel = new Label();
             pathLabel.Text = "Папка игры:";
             pathLabel.SetBounds(22, 84, 200, 20);
+            pathLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
             Controls.Add(pathLabel);
 
             _path = new TextBox();
@@ -273,15 +460,18 @@ namespace ForestModLoader
             _path.ForeColor = Color.White;
             _path.BorderStyle = BorderStyle.FixedSingle;
             _path.TextChanged += delegate { RefreshState(); };
+            _path.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(_path);
 
             Button browse = MakeButton("Обзор...", 458, 105, 100, 26, false);
+            browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             browse.Click += delegate { Browse(); };
             Controls.Add(browse);
 
             _state = new Label();
             _state.SetBounds(22, 142, 540, 20);
             _state.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            _state.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(_state);
 
             Button install = MakeButton("Установить", 22, 172, 170, 40, true);
@@ -293,6 +483,7 @@ namespace ForestModLoader
             Controls.Add(_play);
 
             Button remove = MakeButton("Удалить", 378, 172, 180, 40, false);
+            remove.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             remove.Click += delegate { DoUninstall(); };
             Controls.Add(remove);
 
@@ -305,6 +496,7 @@ namespace ForestModLoader
             _log.ForeColor = Color.FromArgb(154, 190, 165);
             _log.BorderStyle = BorderStyle.FixedSingle;
             _log.Font = new Font("Consolas", 8.5f);
+            _log.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Controls.Add(_log);
 
             string found = Installer.FindGame();
@@ -316,6 +508,11 @@ namespace ForestModLoader
             else
             {
                 Log("Игра не найдена автоматически — укажи папку вручную.");
+            }
+
+            if (found != null && File.Exists(Path.Combine(found, Program.GameExeVR)))
+            {
+                Log("TheForestVR.exe не поддерживается: моды работают только в обычной версии игры.");
             }
 
             RefreshState();
@@ -358,7 +555,7 @@ namespace ForestModLoader
                 return;
             }
 
-            if (!File.Exists(Path.Combine(dir, Program.GameExe)))
+            if (Program.PlayableExe(dir) == null)
             {
                 _state.Text = "Статус: TheForest.exe не найден в этой папке";
                 _state.ForeColor = Warn;
@@ -380,7 +577,7 @@ namespace ForestModLoader
         private void DoInstall()
         {
             string dir = _path.Text.Trim();
-            if (!File.Exists(Path.Combine(dir, Program.GameExe)))
+            if (Program.PlayableExe(dir) == null)
             {
                 MessageBox.Show("Выбери папку, где лежит TheForest.exe.", Program.AppTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -402,7 +599,7 @@ namespace ForestModLoader
             }
             catch (UnauthorizedAccessException)
             {
-                Elevate(dir);
+                Elevate("--install \"" + dir + "\"");
             }
             catch (IOException ex)
             {
@@ -417,12 +614,11 @@ namespace ForestModLoader
             }
         }
 
-        private void Elevate(string dir)
+        private void Elevate(string arguments)
         {
             try
             {
-                ProcessStartInfo psi = new ProcessStartInfo(Application.ExecutablePath,
-                    "--install \"" + dir + "\"");
+                ProcessStartInfo psi = new ProcessStartInfo(Application.ExecutablePath, arguments);
                 psi.UseShellExecute = true;
                 psi.Verb = "runas";
                 Process.Start(psi);
@@ -439,7 +635,7 @@ namespace ForestModLoader
         private void DoUninstall()
         {
             string dir = _path.Text.Trim();
-            if (!Installer.IsInstalled(dir))
+            if (!Installer.HasAnyLoaderFile(dir))
             {
                 MessageBox.Show("Лоадер не установлен.", Program.AppTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -453,15 +649,19 @@ namespace ForestModLoader
                 return;
             }
 
-            if (MessageBox.Show("Удалить лоадер и папку DllMods (вместе с модами)?\n\nФайлы игры не пострадают.",
+            if (MessageBox.Show("Удалить лоадер?\n\nТвои моды в DllMods останутся, удалится только SampleCheats.dll.\nФайлы игры не пострадают.",
                     Program.AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
 
             try
             {
                 Installer.Uninstall(dir);
-                Log("Лоадер удалён. Игра не изменялась.");
+                Log("Лоадер удалён. Моды пользователя и файлы игры не изменялись.");
                 RefreshState();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Elevate("--uninstall \"" + dir + "\"");
             }
             catch (Exception ex)
             {
@@ -474,8 +674,8 @@ namespace ForestModLoader
         private void DoPlay()
         {
             string dir = _path.Text.Trim();
-            string exe = Path.Combine(dir, Program.GameExe);
-            if (!File.Exists(exe))
+            string exe = Program.PlayableExe(dir);
+            if (exe == null)
             {
                 MessageBox.Show("TheForest.exe не найден.", Program.AppTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -519,14 +719,18 @@ namespace ForestModLoader
 
         private static bool IsGameRunning()
         {
-            try
+            string[] names = new string[] { "TheForest", "TheForest32", "TheForestVR" };
+            for (int i = 0; i < names.Length; i++)
             {
-                return Process.GetProcessesByName("TheForest").Length > 0;
+                try
+                {
+                    if (Process.GetProcessesByName(names[i]).Length > 0) return true;
+                }
+                catch
+                {
+                }
             }
-            catch
-            {
-                return false;
-            }
+            return false;
         }
     }
 }

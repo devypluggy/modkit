@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEngine;
@@ -10,15 +11,44 @@ namespace Doorstop
     public static class Entrypoint
     {
         private static string _logPath;
+        private static string _fallbackLogPath;
+        private static bool _usingFallback;
         private static bool _sceneHooked;
         private static readonly object LogLock = new object();
+
+        // Папка игры = папка, из которой загружен Doorstop.dll.
+        // Directory.GetCurrentDirectory() здесь ненадёжен: Steam выставляет её,
+        // а ярлык/проводник/другой лаунчер — нет.
+        public static string BaseDirectory
+        {
+            get
+            {
+                try
+                {
+                    string location = Assembly.GetExecutingAssembly().Location;
+                    if (!string.IsNullOrEmpty(location))
+                        return Path.GetDirectoryName(location);
+                }
+                catch
+                {
+                }
+
+                return AppDomain.CurrentDomain.BaseDirectory;
+            }
+        }
+
+        public static string ModDirectory
+        {
+            get { return Path.Combine(BaseDirectory, "DllMods"); }
+        }
 
         public static void Start()
         {
             try
             {
-                _logPath = Path.Combine(Directory.GetCurrentDirectory(), "doorstop_loader.log");
-                Log("Doorstop.Start, cwd=" + Directory.GetCurrentDirectory());
+                _logPath = Path.Combine(BaseDirectory, "doorstop_loader.log");
+                RotateLog();
+                Log("Doorstop.Start, base=" + BaseDirectory);
 
                 // Страховка: если SceneManager ещё не готов, подпишемся позже,
                 // когда Unity загрузит Assembly-CSharp (это происходит на главном потоке).
@@ -29,6 +59,24 @@ namespace Doorstop
             catch (Exception e)
             {
                 Log("Start failed: " + e);
+            }
+        }
+
+        private static void RotateLog()
+        {
+            try
+            {
+                FileInfo fi = new FileInfo(_logPath);
+                if (fi.Exists && fi.Length > 2 * 1024 * 1024)
+                {
+                    string old = _logPath + ".old";
+                    if (File.Exists(old)) File.Delete(old);
+                    File.Move(_logPath, old);
+                }
+            }
+            catch
+            {
+                // Ротация — не критично, продолжаем писать в текущий файл.
             }
         }
 
@@ -84,17 +132,48 @@ namespace Doorstop
 
         public static void Log(string msg)
         {
-            try
+            string line = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + msg + "\r\n";
+
+            lock (LogLock)
             {
                 if (_logPath == null)
-                    _logPath = Path.Combine(Directory.GetCurrentDirectory(), "doorstop_loader.log");
-                lock (LogLock)
+                    _logPath = Path.Combine(BaseDirectory, "doorstop_loader.log");
+
+                if (!_usingFallback && TryAppend(_logPath, line)) return;
+
+                // Program Files защищена от записи для обычного пользователя:
+                // пишем в %LOCALAPPDATA%\TheForestModLoader вместо молчаливой потери лога.
+                if (_fallbackLogPath == null)
                 {
-                    File.AppendAllText(_logPath, "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg + "\r\n");
+                    string dir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "TheForestModLoader");
+                    try
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    catch
+                    {
+                    }
+                    _fallbackLogPath = Path.Combine(dir, "doorstop_loader.log");
                 }
+
+                if (TryAppend(_fallbackLogPath, line))
+                    _usingFallback = true;
+            }
+        }
+
+        private static bool TryAppend(string path, string text)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try
+            {
+                File.AppendAllText(path, text);
+                return true;
             }
             catch
             {
+                return false;
             }
         }
     }
@@ -102,42 +181,91 @@ namespace Doorstop
     public class ModHost : MonoBehaviour
     {
         private bool _loaded;
+        private bool _announcedMissing;
+        private float _nextCheck;
+        private readonly Dictionary<string, bool> _initialized = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         private void Update()
         {
             if (_loaded) return;
-            _loaded = true;
-            LoadMods();
+            if (Time.unscaledTime < _nextCheck) return;
+            _nextCheck = Time.unscaledTime + 1f;
+
+            // _loaded ставится только после успешной загрузки. Если DllMods
+            // появилась позже (или была пустой на первом кадре) — повторим.
+            _loaded = LoadMods();
         }
 
-        private void LoadMods()
+        private bool LoadMods()
         {
             try
             {
-                string dir = Path.Combine(Directory.GetCurrentDirectory(), "DllMods");
-                Entrypoint.Log("LoadMods: " + dir + " exists=" + Directory.Exists(dir));
-                if (!Directory.Exists(dir)) return;
+                string dir = Entrypoint.ModDirectory;
+                if (!Directory.Exists(dir))
+                {
+                    if (!_announcedMissing)
+                    {
+                        Entrypoint.Log("LoadMods: " + dir + " not found yet, will retry");
+                        _announcedMissing = true;
+                    }
+                    return false;
+                }
 
                 string[] files = Directory.GetFiles(dir, "*.dll", SearchOption.AllDirectories);
                 Array.Sort(files, StringComparer.OrdinalIgnoreCase); // стабильный порядок загрузки
-                Entrypoint.Log("found mods: " + files.Length);
 
-                for (int i = 0; i < files.Length; i++) LoadOne(files[i]);
+                // Один и тот же мод может лежать в DllMods и DllMods\old —
+                // берём только первое вхождение, иначе Init вызовется дважды.
+                List<string> unique = new List<string>();
+                Dictionary<string, bool> fileNames = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    string name = Path.GetFileName(files[i]);
+                    if (fileNames.ContainsKey(name))
+                    {
+                        Entrypoint.Log("skipping duplicate mod: " + files[i]);
+                        continue;
+                    }
+                    fileNames[name] = true;
+                    unique.Add(files[i]);
+                }
+
+                if (unique.Count == 0)
+                {
+                    if (!_announcedMissing)
+                    {
+                        Entrypoint.Log("LoadMods: " + dir + " is empty, will retry");
+                        _announcedMissing = true;
+                    }
+                    return false;
+                }
+
+                _announcedMissing = false;
+                Entrypoint.Log("found mods: " + unique.Count);
+                for (int i = 0; i < unique.Count; i++) LoadOne(unique[i]);
+                return true;
             }
             catch (Exception e)
             {
-                // Раньше исключение здесь оставляло _loaded = true и моды
-                // больше не пытались загрузиться никогда.
-                Entrypoint.Log("LoadMods failed: " + e);
+                Entrypoint.Log("LoadMods failed (will retry): " + e);
+                return false;
             }
         }
 
-        private static void LoadOne(string file)
+        private void LoadOne(string file)
         {
             try
             {
                 Assembly asm = Assembly.LoadFrom(file);
-                Entrypoint.Log("loaded assembly: " + asm.GetName().Name);
+                string asmName = asm.GetName().Name;
+                if (_initialized.ContainsKey(asmName))
+                {
+                    Entrypoint.Log("already initialized: " + asmName);
+                    return;
+                }
+                _initialized[asmName] = true;
+
+                Entrypoint.Log("loaded assembly: " + asmName);
 
                 Type[] types;
                 try
@@ -149,7 +277,7 @@ namespace Doorstop
                     // Часть типов может не загрузиться из-за отсутствующей
                     // зависимости — работаем с теми, что уцелели.
                     types = ex.Types;
-                    Entrypoint.Log("partial type load in " + asm.GetName().Name + ": " + ex.Message);
+                    Entrypoint.Log("partial type load in " + asmName + ": " + ex.Message);
                 }
 
                 for (int i = 0; i < types.Length; i++)

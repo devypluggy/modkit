@@ -1,0 +1,38 @@
+Manual install (if you don't want to use the launcher)
+======================================================
+
+1. Copy from the doorstop\ folder into your game folder
+   (the one with TheForest.exe):
+
+   winhttp.dll                (64-bit game)
+   doorstop_config.ini
+   Doorstop.dll
+
+   For the 32-bit game (TheForest32.exe) use winhttp_x86.dll
+   instead, renamed to winhttp.dll. The two architectures cannot
+   coexist in one folder.
+
+2. Create a folder named DllMods and put mods there:
+
+   DllMods\SampleCheats.dll   (optional)
+
+3. Launch the game normally through Steam.
+
+Steam -> The Forest -> right click -> Manage -> Browse local files
+
+Logs
+----
+doorstop_loader.log in the game folder. If the folder is read-only,
+check %LOCALAPPDATA%\TheForestModLoader\doorstop_loader.log instead.
+
+Uninstall
+---------
+Delete winhttp.dll, doorstop_config.ini, Doorstop.dll and
+doorstop_loader.log from the game folder, then delete
+DllMods\SampleCheats.dll. Your own mods in DllMods\ are not touched.
+Game files are untouched.
+
+VR
+--
+TheForestVR.exe is not supported: it does not load the winhttp proxy.
+Use the regular version for mods.
